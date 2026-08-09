@@ -6,12 +6,10 @@ pipeline {
     }
 
     stages {
-        state('Git Checkout'){
+        state('Git Checkout') {
             steps {
                 checkout scm
             }
         }
     }
-
-
 }
