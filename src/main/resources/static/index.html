@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spring Boot Production Core // Linear Edition</title>
+    <title>Spring Boot Production Core // Telemetry Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
@@ -84,6 +84,34 @@
     <!-- 메인 컨테이너 -->
     <main class="w-full max-w-xl">
         
+        <!-- 실시간 텔레메트리 바 (위치, 날씨, 초단위 시계) -->
+        <div class="mb-4 grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
+            <!-- 시계 -->
+            <div class="glass-panel rounded-xl px-4 py-3 flex items-center gap-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span id="live-time" class="mono text-slate-300 font-bold">00:00:00</span>
+            </div>
+
+            <!-- 위치 -->
+            <div class="glass-panel rounded-xl px-4 py-3 flex items-center gap-2.5 truncate">
+                <svg class="w-4 h-4 text-sky-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                <span id="location-text" class="text-slate-300 font-medium truncate">위치 확인중...</span>
+            </div>
+
+            <!-- 날씨 -->
+            <div class="glass-panel rounded-xl px-4 py-3 col-span-2 md:col-span-1 flex items-center gap-2.5">
+                <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path>
+                </svg>
+                <span id="weather-text" class="text-slate-300 font-medium truncate">날씨 로딩중...</span>
+            </div>
+        </div>
+
         <!-- 3D 인터랙티브 카드 -->
         <div id="card" class="tilt-card glass-panel rounded-3xl p-8 md:p-10 relative overflow-hidden">
             <div class="spotlight"></div>
@@ -117,7 +145,7 @@
                         <span class="mono px-2 py-0.5 rounded bg-white/10 text-slate-300 text-xs font-bold">v1</span>
                         <span class="text-sm font-medium">최초 배포</span>
                     </div>
-                    <span class="text-xs text-slate-500 mono">INITIALIZED</span>
+                    <span class="text-xs text-slate-500 mono">INITIAL</span>
                 </div>
 
                 <!-- v2 -->
@@ -162,8 +190,64 @@
 
     </main>
 
-    <!-- 인터랙션 자바스크립트 (3D 틸트 및 스페큘러 라이팅) -->
+    <!-- 인터랙션 및 텔레메트리 자바스크립트 -->
     <script>
+        // 1. 실시간 시계 (초 단위 갱신)
+        function updateClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            document.getElementById('live-time').innerText = `${hours}:${minutes}:${seconds}`;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // 2. 위치 및 날씨 정보 자동 수집
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(async (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+
+                // 위치명 조회 (OpenStreetMap Nominatim API)
+                try {
+                    const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=ko`);
+                    const geoData = await geoRes.json();
+                    const address = geoData.address;
+                    const city = address.city || address.town || address.county || address.borough || "현재 위치";
+                    document.getElementById('location-text').innerText = city;
+                } catch (e) {
+                    document.getElementById('location-text').innerText = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+                }
+
+                // 날씨 정보 조회 (Open-Meteo API)
+                try {
+                    const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
+                    const weatherData = await weatherRes.json();
+                    const temp = weatherData.current_weather.temperature;
+                    const code = weatherData.current_weather.weathercode;
+                    
+                    let weatherDesc = "맑음";
+                    if (code > 0 && code < 4) weatherDesc = "구름 많음";
+                    else if (code >= 45 && code < 50) weatherDesc = "안개";
+                    else if (code >= 50 && code < 70) weatherDesc = "비";
+                    else if (code >= 70 && code < 80) weatherDesc = "눈";
+                    else if (code >= 80) weatherDesc = "소나기";
+
+                    document.getElementById('weather-text').innerText = `${weatherDesc} (${temp}°C)`;
+                } catch (e) {
+                    document.getElementById('weather-text').innerText = "날씨 정보 로드 실패";
+                }
+            }, () => {
+                document.getElementById('location-text').innerText = "위치 권한 차단됨";
+                document.getElementById('weather-text').innerText = "조회 불가";
+            });
+        } else {
+            document.getElementById('location-text').innerText = "위치 미지원 브라우저";
+            document.getElementById('weather-text').innerText = "조회 불가";
+        }
+
+        // 3. 3D 틸트 카드 마우스 인터랙션
         const card = document.getElementById('card');
 
         document.addEventListener('mousemove', (e) => {
@@ -171,11 +255,9 @@
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
-            // 스페큘러 라이팅 좌표 반영
             card.style.setProperty('--mouse-x', `${x}px`);
             card.style.setProperty('--mouse-y', `${y}px`);
 
-            // 3D 회전 각도 계산
             const centerX = rect.width / 2;
             const centerY = rect.height / 2;
             const rotateX = ((y - centerY) / centerY) * -6;
@@ -184,7 +266,6 @@
             card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.01, 1.01, 1.01)`;
         });
 
-        // 마우스가 카드를 벗어났을 때 원위치 복귀
         document.addEventListener('mouseleave', () => {
             card.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
         });
