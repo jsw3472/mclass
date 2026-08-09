@@ -203,51 +203,65 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        // 2. 위치 및 날씨 정보 자동 수집
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(async (position) => {
-                const lat = position.coords.latitude;
-                const lon = position.coords.longitude;
-
-                // 위치명 조회 (OpenStreetMap Nominatim API)
-                try {
+        // 2. 날씨 및 위치 데이터 처리 함수
+        async function fetchWeatherAndLocation(lat, lon, cityNameOverride = null) {
+            try {
+                if (!cityNameOverride) {
                     const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=ko`);
                     const geoData = await geoRes.json();
                     const address = geoData.address;
                     const city = address.city || address.town || address.county || address.borough || "현재 위치";
                     document.getElementById('location-text').innerText = city;
-                } catch (e) {
-                    document.getElementById('location-text').innerText = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+                } else {
+                    document.getElementById('location-text').innerText = cityNameOverride;
                 }
 
-                // 날씨 정보 조회 (Open-Meteo API)
-                try {
-                    const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
-                    const weatherData = await weatherRes.json();
-                    const temp = weatherData.current_weather.temperature;
-                    const code = weatherData.current_weather.weathercode;
-                    
-                    let weatherDesc = "맑음";
-                    if (code > 0 && code < 4) weatherDesc = "구름 많음";
-                    else if (code >= 45 && code < 50) weatherDesc = "안개";
-                    else if (code >= 50 && code < 70) weatherDesc = "비";
-                    else if (code >= 70 && code < 80) weatherDesc = "눈";
-                    else if (code >= 80) weatherDesc = "소나기";
+                const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
+                const weatherData = await weatherRes.json();
+                const temp = weatherData.current_weather.temperature;
+                const code = weatherData.current_weather.weathercode;
+                
+                let weatherDesc = "맑음";
+                if (code > 0 && code < 4) weatherDesc = "구름 많음";
+                else if (code >= 45 && code < 50) weatherDesc = "안개";
+                else if (code >= 50 && code < 70) weatherDesc = "비";
+                else if (code >= 70 && code < 80) weatherDesc = "눈";
+                else if (code >= 80) weatherDesc = "소나기";
 
-                    document.getElementById('weather-text').innerText = `${weatherDesc} (${temp}°C)`;
-                } catch (e) {
-                    document.getElementById('weather-text').innerText = "날씨 정보 로드 실패";
+                document.getElementById('weather-text').innerText = `${weatherDesc} (${temp}°C)`;
+            } catch (e) {
+                document.getElementById('weather-text').innerText = "날씨 정보 로드 실패";
+            }
+        }
+
+        // 3. 위치 권한 허용 실패/차단 시 IP 기반 자동 위치 추적 폴백(Fallback) 적용
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    fetchWeatherAndLocation(position.coords.latitude, position.coords.longitude);
+                },
+                async () => {
+                    // 브라우저 위치 권한 차단 시 IP 기반 위치 자동 파악
+                    try {
+                        const ipRes = await fetch('https://ipwho.is/');
+                        const ipData = await ipRes.json();
+                        if (ipData.success) {
+                            fetchWeatherAndLocation(ipData.latitude, ipData.longitude, ipData.city);
+                        } else {
+                            throw new Error();
+                        }
+                    } catch (err) {
+                        document.getElementById('location-text').innerText = "위치 확인 불가";
+                        document.getElementById('weather-text').innerText = "날씨 조회 불가";
+                    }
                 }
-            }, () => {
-                document.getElementById('location-text').innerText = "위치 권한 차단됨";
-                document.getElementById('weather-text').innerText = "조회 불가";
-            });
+            );
         } else {
             document.getElementById('location-text').innerText = "위치 미지원 브라우저";
             document.getElementById('weather-text').innerText = "조회 불가";
         }
 
-        // 3. 3D 틸트 카드 마우스 인터랙션
+        // 4. 3D 틸트 카드 마우스 인터랙션
         const card = document.getElementById('card');
 
         document.addEventListener('mousemove', (e) => {
